@@ -70,4 +70,4 @@ wait.s wait.o : wait.c ../include/unistd.h ../include/sys/stat.h \
   ../include/utime.h ../include/sys/wait.h 
 write.s write.o : write.c ../include/unistd.h ../include/sys/stat.h \
   ../include/sys/types.h ../include/sys/times.h ../include/sys/utsname.h \
-  ../include/utime.h 
+  ../include/utime.h
