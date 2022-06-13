@@ -48,8 +48,8 @@ OLDSS		= 0x2C
 state	= 0		# these are offsets into the task-struct.
 counter	= 4
 priority = 8
-signal	= 12
-sigaction = 16		# MUST be 16 (=len of sigaction)
+signal	= 16
+sigaction = 20		# MUST be 16 (=len of sigaction)
 blocked = (33*16)
 
 # offsets within sigaction
@@ -126,6 +126,39 @@ ret_from_sys_call:
 	pop %es
 	pop %ds
 	iret
+
+.globl switch_to
+.align 2
+switch_to:
+	pushl %ebp
+	movl %esp,%ebp
+	pushl %ecx
+	pushl %ebx
+	pushl %eax
+	movl 8(%ebp),%eax   # move addr of next struct to eax
+	cmpl %eax,current
+	je 1f
+	xchgl %eax,current      # now eax: current process, current point to next
+	movl current,%ebx       # ebx point to next
+	movl global_tss,%ecx    # set global tss
+	addl $4096,%ebx         # let kernel stack bottom in ebx
+	movl %ebx,4(%ecx)       # set tss.sp0
+	movl %esp,12(%eax)      # switch kernel stack
+	movl current,%ebx
+	movl 12(%ebx),%esp      # store current sp to PCB
+	movl 12(%ebp),%ecx
+	lldt %cx                # switch ldt
+	movl $0x17,%ecx
+	mov %cx,%fs
+	cmpl %eax,last_task_used_math
+	jne 1f
+	clts
+1:
+	popl %eax
+	popl %ebx
+	popl %ecx
+	popl %ebp
+	ret
 
 .align 2
 coprocessor_error:
@@ -217,6 +250,18 @@ sys_fork:
 	call copy_process
 	addl $20,%esp
 1:	ret
+
+.globl first_ret_from_fork
+.align 2
+first_ret_from_fork:
+	popl %edx
+	popl %edi
+	popl %esi
+	pop %gs
+	pop %fs
+	pop %es
+	pop %ds
+	iret
 
 hd_interrupt:
 	pushl %eax

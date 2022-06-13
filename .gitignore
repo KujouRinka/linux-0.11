@@ -3,6 +3,7 @@
 cmake-build-debug/
 cmake-build-release/
 config/config.json
+CMakeLists.txt
 
 # Linux file
 bootsect

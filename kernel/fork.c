@@ -61,6 +61,7 @@ int copy_mem(int nr,struct task_struct * p)
 	return 0;
 }
 
+extern void first_ret_from_fork();
 /*
  *  Ok, this is the main fork-routine. It copies the system process
  * information (task[nr]) and sets up the necessary registers. It
@@ -80,6 +81,7 @@ int copy_process(int nr,long ebp,long edi,long esi,long gs,long none,
 		return -EAGAIN;
 	task[nr] = p;
 	*p = *current;	/* NOTE! this doesn't copy the supervisor stack */
+
 	p->state = TASK_UNINTERRUPTIBLE;
 	p->pid = last_pid;
 	p->father = current->pid;
@@ -90,27 +92,6 @@ int copy_process(int nr,long ebp,long edi,long esi,long gs,long none,
 	p->utime = p->stime = 0;
 	p->cutime = p->cstime = 0;
 	p->start_time = jiffies;
-	p->tss.back_link = 0;
-	p->tss.esp0 = PAGE_SIZE + (long) p;
-	p->tss.ss0 = 0x10;
-	p->tss.eip = eip;
-	p->tss.eflags = eflags;
-	p->tss.eax = 0;
-	p->tss.ecx = ecx;
-	p->tss.edx = edx;
-	p->tss.ebx = ebx;
-	p->tss.esp = esp;
-	p->tss.ebp = ebp;
-	p->tss.esi = esi;
-	p->tss.edi = edi;
-	p->tss.es = es & 0xffff;
-	p->tss.cs = cs & 0xffff;
-	p->tss.ss = ss & 0xffff;
-	p->tss.ds = ds & 0xffff;
-	p->tss.fs = fs & 0xffff;
-	p->tss.gs = gs & 0xffff;
-	p->tss.ldt = _LDT(nr);
-	p->tss.trace_bitmap = 0x80000000;
 	if (last_task_used_math == current)
 		__asm__("clts ; fnsave %0"::"m" (p->tss.i387));
 	if (copy_mem(nr,p)) {
@@ -118,6 +99,30 @@ int copy_process(int nr,long ebp,long edi,long esi,long gs,long none,
 		free_page((long) p);
 		return -EAGAIN;
 	}
+
+	long *kernel_stack_top = (long *)(PAGE_SIZE + (long)p);
+	// prepare info for user stack
+	*(--kernel_stack_top) = ss & 0xffff;
+	*(--kernel_stack_top) = esp;
+	*(--kernel_stack_top) = eflags;
+	*(--kernel_stack_top) = cs & 0xffff;
+	*(--kernel_stack_top) = eip;
+
+	// copy parent kernel stack
+	*(--kernel_stack_top) = ds & 0xffff;
+	*(--kernel_stack_top) = es & 0xffff;
+	*(--kernel_stack_top) = fs & 0xffff;
+	*(--kernel_stack_top) = gs & 0xffff;
+	*(--kernel_stack_top) = esi;
+	*(--kernel_stack_top) = edi;
+	*(--kernel_stack_top) = edx;
+	*(--kernel_stack_top) = (long)first_ret_from_fork;
+	*(--kernel_stack_top) = ebp;
+	*(--kernel_stack_top) = ecx;
+	*(--kernel_stack_top) = ebx;
+	*(--kernel_stack_top) = 0;	// fork return 0 in child process
+	p->kernel_stack = (long)kernel_stack_top;
+
 	for (i=0; i<NR_OPEN;i++)
 		if ((f=p->filp[i]))
 			f->f_count++;
@@ -127,7 +132,7 @@ int copy_process(int nr,long ebp,long edi,long esi,long gs,long none,
 		current->root->i_count++;
 	if (current->executable)
 		current->executable->i_count++;
-	set_tss_desc(gdt+(nr<<1)+FIRST_TSS_ENTRY,&(p->tss));
+	// set_tss_desc(gdt+(nr<<1)+FIRST_TSS_ENTRY,&(p->tss));
 	set_ldt_desc(gdt+(nr<<1)+FIRST_LDT_ENTRY,&(p->ldt));
 	p->state = TASK_RUNNING;	/* do this last, just in case */
 	return last_pid;
